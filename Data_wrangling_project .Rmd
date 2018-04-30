@@ -1,0 +1,398 @@
+---
+title: "Data_wrangling_Project"
+author: "Ruixuan Song"
+date: "4/29/2018"
+output: html_document
+---
+```{r echo = FALSE}
+#Packages that we're going to use in this project 
+library(rvest)
+library(tidyverse)
+library(ggplot2)
+library(quantmod)
+library(XML)
+library(purrr)
+library(base)
+library(dplyr)
+library(plyr)
+library(magrittr)
+library(blscrapeR)
+```
+
+
+#### First, import climate data from web link:  "https://en.tutiempo.net/climate/united-states.html"
+
+## Texas
+Just an example of how the data was scraped from the website. Similar techniques performed for the rest of the dataset.
+```{r echo = TRUE}
+#### North America Climate data
+# Texas climate stations
+#the weather station: 722660 (KABI)
+Climate_Abilene <- "https://en.tutiempo.net/climate/ws-722660.html"
+texas <- Climate_Abilene %>% read_html() %>%
+  html_nodes(".medias td+ td , .tc1+ td , .tc1 strong , th") %>% html_text() %>% 
+  matrix(ncol = 12, byrow = T) 
+texas <- gsub("-", "0.00", texas)
+colnames(texas) <- texas[1,]
+texas <- as.data.frame(texas[-1,])
+```
+
+```{r echo = FALSE}
+# the weather station: 690190 (KDYS)
+Abilene_dyess_AF <- "https://en.tutiempo.net/climate/ws-690190.html"
+diyess_AF <- Abilene_dyess_AF %>% read_html() %>%
+  html_nodes(".medias td+ td , .tc1+ td , .tc1 strong , th") %>% html_text() %>% 
+  matrix(ncol = 12, byrow = T) 
+diyess_AF <- gsub("-", "0.00", diyess_AF)
+colnames(diyess_AF) <- diyess_AF[1,]
+diyess_AF <- as.data.frame(diyess_AF[-1,])  
+
+#I want to combine the two climate stations in texas into one table. Meanwhile omit some NAs in the table to clean some data. 
+Texas <- full_join(texas,diyess_AF) %>% select("Year", "T","TM", "Tm","PP","V")
+
+ind1 <- sapply(Texas, is.character)
+Texas[ind1] <- lapply(Texas[ind1], function(x) as.numeric((x)))
+
+#range of the anual temperatue 
+Texas %>%
+  mutate(rangeT = TM - Tm) %>% 
+  mutate(V.sd = sd(Texas$V)) %>%
+  head() 
+#plot the wind speed against precipitation in Texas with respect to year 
+Texas %>%
+  filter(PP < 600) %>%
+  ggplot(aes(V,Year, colour = PP, na.rm = TRUE)) + 
+  geom_hex(bins = 20) +
+  xlab("Annual wind speed in Texas") + ylab("Year") + 
+  theme(legend.position = "left") + 
+  #guide_legend(title = "precipitation") + 
+  ggtitle("wind speed vs precipitation")
+
+```
+
+Data scraping part: 
+
+Since there are mutiple climate stations located in Texas, I picked two of them which contain the least amount of NAs and scrape them off from the website (I changed them into 0s to match the rest of the format of the data points, which are doubles. Because in the original dataset, the missing values are represented as hyphens). 
+
+The general web-scraping method invlove using "read_html()" and "html_text()" from rvest library which we load at the beginning of the project. After successfully scraped the tables, they're originally in the format of matrices. To further apply computations and manipulations to these tables, I first assigned the column names to the matrices, then convert each selected columns from "character/factor" into "numeric". Finally convert two climate stations in Texas into data frame, so that now we are able to do some calculations.
+
+Analytic part: 
+
+I ggplot to plot a graph using annual wind speed against precipitation over years to just have a look at what kind of trend it has. I used "geom_hex()" function built inside the ggplot for visualization. We can see from the plot that most of the data points that represent variable "annual average wind speed" were mostly gathered around 15 to 20 which make sense since we are analyzing Texas here.
+
+I also calculate the range of the merged data frame of Texas by subtracting minimum temperature from maximum temperature and the standard deviation to see how spread out the data is with respect to wind speed. It is not suprising to see that the ranges of the temperature in Texas are generally higher than the temperature range in Maryland calculated below.
+
+
+Maryland 
+```{r echo = FALSE}
+# Maryland climate stations 
+Climate_Aberdeen <- "https://en.tutiempo.net/climate/ws-691174.html"
+maryland <- Climate_Aberdeen %>% read_html() %>%
+  html_nodes(".medias td+ td , .tc1+ td , .tc1 strong , th") %>% html_text() %>% 
+  matrix(ncol = 12, byrow = T) 
+maryland <- gsub("-", "0", maryland)
+colnames(maryland) <- maryland[1,]
+maryland <- as.data.frame(maryland[-1,]) %>% select("Year", "T","TM", "Tm","V", "FG")
+
+# To perform further calculations, we need to transform columns from "factors" into "numeric"
+ind <- sapply(maryland, is.factor)
+maryland[ind] <- lapply(maryland[ind], function(x) as.numeric(as.character(x)))
+
+maryland <- maryland %>%
+  mutate(T_range = (maryland$TM - maryland$Tm)) %>%
+  mutate(totalFG = sum(maryland$FG)) 
+
+# total number of fog days from 1936 to 2003 in Maryland, plot fog days against wind speed >10
+maryland %>%
+  filter(maryland$V >= 10) %>%
+  ggplot(aes(FG,Year, color = V, fill = V)) + geom_point() +
+  xlab("Foggy Days in Maryland") + ylab("Year") + theme(legend.position = "left") + ggtitle("Foggy days vs year in MA")
+
+
+```
+
+Similar data scraping method that we used for Texas above, this time the data frame is for Maryland weather data. 
+
+The ggplot shows here represent the total number of fog days from 1936 to 2003 in Maryland, where I filtered those data points where wind speed >10. The color in the legend on the left represents the annual wind speed of each year, from 1936 to 2003. 
+
+Compare to the range of the temperature above for Texas we can see that the range is generally narrower (smaller value) than Texas does. Moreover, I include the total foggy days that Maryland had from 1936 to 2003. By doing some simple math, over 67 years (2003 - 1936), the average foggy days that Maryland had is around 35 days (2336 / 67).
+
+
+Virginia 
+```{r echo = FALSE}
+# Virginia climate station
+Climate_Abingdon <- "https://en.tutiempo.net/climate/ws-724058.html"
+virginia <- Climate_Abingdon %>% read_html() %>%
+  html_nodes(".medias td+ td , .tc1+ td , .tc1 strong , th") %>% html_text() %>% 
+  matrix(ncol = 12, byrow = T)
+virginia <- gsub("-", "0", virginia)
+colnames(virginia) <- virginia[1,]
+virginia <- as.data.frame(virginia[-1,]) %>% select("Year", "T","TM", "Tm","V", "RA", "TS", "SN")
+
+#transform columns into numeric
+ind2 <- sapply(virginia, is.factor)
+virginia[ind2] <- lapply(virginia[ind2], function(x) as.numeric(as.character(x)))
+
+# top five years annual wind speed in VA
+top5_windSpeed <- virginia %>%
+  group_by(V) %>%
+  arrange(-V) %>%
+  distinct(V) %>%
+  .[1:5, 1] %>%
+  ungroup()
+
+# top 5 years that rains the most  in VA
+top5_rainyYears <- virginia %>%
+  group_by(Year, RA) %>%
+  arrange(-RA) %>%
+  distinct(RA) %>%
+  .[1:5, 2] %>%
+  ungroup
+
+#binding two columns together 
+cbind(top5_windSpeed, top5_rainyYears)
+
+# Top 6 years with the largest wind speed corresponsing with its annual average temperature.
+compare1 <- virginia %>%
+  select(Year, V, T) %>%
+  arrange(-V, -T) %>% 
+  head
+```
+
+For Virnia, I was interested in listing out the top 5 values for both annual wind speed and rainy days happened from 1992 to 2018. After performing select and group_by using pipe method, I coulumn bind these two results together to have a summarized view of the dataset. By looking at the result and went back to the original data for Virginia, we can find out that the year which rains the most (177 days) was 2009, and the year which has the largest annual wind speed was 2003. 
+
+However, by looking at the original dataset of Virginia, from year 1992 to 2003, the last three columns which represent number of days with rain, number of days with storm and number of days with snow coincidentally do not contain any valid data points. My guess here is that those data were either missing due to recording issue (climate staion technique problems) or the data on the website has not updated the newest information yet. 
+
+Oklahoma
+```{r echo = FALSE}
+# Oklahoma climate station
+Climate_Ada <- "https://en.tutiempo.net/climate/ws-722044.html"
+oklahoma <- Climate_Ada %>% read_html() %>%
+  html_nodes(".medias td+ td , .tc1+ td , .tc1 strong , th") %>% html_text() %>% 
+  matrix(ncol = 12, byrow = T) 
+oklahoma <- gsub("-", "0.00", oklahoma)
+colnames(oklahoma) <- oklahoma[1,]
+oklahoma <- as.data.frame(oklahoma[-1,]) %>% select("Year", "T","TM", "Tm","PP","V","RA", "TN", "SN")
+
+dim(oklahoma)
+
+#transform columns into numeric
+ind4 <- sapply(oklahoma, is.factor)
+oklahoma[ind2] <- lapply(oklahoma[ind2], function(x) as.numeric(as.character(x)))
+
+top3_rainyYears_OK <- oklahoma %>%
+  group_by(Year) %>%
+  arrange(-RA) %>%
+  distinct(RA) %>%
+  .[1:3,1] %>%
+  ungroup
+
+compare2 <- oklahoma %>%
+  select(Year, V, T) %>%
+  arrange(-V, -T) %>% 
+  head
+# compare Viginia and Oklahoma with top 6 years with their largest wind speed corresponding with its annual average temperature
+merge(compare1, compare2, by = "Year")
+```
+We can see that by merging two tibles "compare1" and "compare2" by year, the only duplicate year that appears to be in both tibles is 2008, with corresponding annual wind speed and annual average temperature. Where V.x and T.x indicate Virginia's wind speed and temperature, and V.y, T.y indicate Oklahoma's wind speed and temperature. 
+
+
+Alaska
+```{r echo = FALSE}
+# Alaska climate station
+Climate_Adak <- "https://en.tutiempo.net/climate/ws-704540.html"
+alaska <- Climate_Adak %>% read_html() %>%
+  html_nodes(".medias td+ td , .tc1+ td , .tc1 strong , th") %>% html_text() %>% 
+  matrix(ncol = 12, byrow = T) 
+alaska <- gsub("-", "0", alaska)
+colnames(alaska) <- alaska[1,]
+alaska <- as.data.frame(alaska[-1,]) %>% select("Year", "T","TM", "Tm","PP","RA", "SN","TS","GR")
+
+#transform columns into numeric
+ind3 <- sapply(alaska, is.factor)
+alaska[ind2] <- lapply(alaska[ind2], function(x) as.numeric(as.character(x)))
+
+# Average number of days that Alaska snows from 1942 to 2018
+alaska %>% 
+  filter(SN != 0) %>%
+  mutate(avg_snowDays = mean(alaska$SN))
+
+
+alaska %>%
+  ggplot(aes(SN, Year, color = PP)) + geom_point() + xlab("Number of days with snow") + 
+  ylab("Year") 
+
+```
+
+For Alaska, I calculated the average snow days from 1942 to 2018. We can see from the table that averagely saying, around 97 days of the days in Alaska (about 3 months) are snowing. When performing the calculation, I filtered out those years where the number of days with snow = 0, so to make the table looks nicer and cleaner. 
+
+I also plot a graph showing the overall trend of snow days against year with respect to precipitations. From the graph we can see that mostly the precipitation data points are darker (which means less precipitations occured) earlier around 1960s, as we move later on the time line, we can see that the precipitation gets more and more (since the color of the dots are getting lighter)
+
+
+## 3 North Carolina weather station 
+```{r echo = FALSE}
+# North Carolina climate station 
+Climate_Ahoskie <- "https://en.tutiempo.net/climate/ws-723079.html"
+north_carolina <- Climate_Ahoskie %>% read_html() %>%
+  html_nodes(".medias td+ td , .tc1+ td , .tc1 strong , th") %>% html_text() %>% 
+  matrix(ncol = 12, byrow = T)
+#replace - with 0
+north_carolina <- gsub("-", "0", north_carolina)
+#assign column names to the data frame
+colnames(north_carolina) <- north_carolina[1,]
+north_carolina <- as.data.frame(north_carolina[-1,])
+#transfer to numeric
+ind <- sapply(north_carolina, is.factor)
+north_carolina[ind] <- lapply(north_carolina[ind], function(x) as.numeric(as.character(x)))
+
+# Further clean the data frame and replace the header with actual "column names" that we want
+temp1 <- north_carolina %>%
+  select("Year", "T","TM", "Tm","PP","V")
+
+
+
+Climate_rdu <- "https://en.tutiempo.net/climate/ws-723060.html"
+nc_rdu <- Climate_rdu %>% read_html() %>%
+  html_nodes(".medias td+ td , .tc1+ td , .tc1 strong , th") %>% html_text() %>% 
+  matrix(ncol = 12, byrow = T)
+nc_rdu <- gsub("-", "0", nc_rdu)
+colnames(nc_rdu) <- nc_rdu[1,]
+nc_rdu <- as.data.frame(nc_rdu[-1,])
+
+ind5 <- sapply(nc_rdu, is.factor)
+nc_rdu[ind5] <- lapply(nc_rdu[ind5], function(x) as.numeric(as.character(x)))
+
+temp2 <- nc_rdu %>%
+  select("Year", "T","TM", "Tm","PP","V") 
+
+
+
+
+Climate_charlotte <- "https://en.tutiempo.net/climate/ws-723140.html"
+nc_charlotte <- Climate_charlotte %>% read_html() %>%
+  html_nodes(".medias td+ td , .tc1+ td , .tc1 strong , th") %>% html_text() %>% 
+  matrix(ncol = 12, byrow = T)
+nc_charlotte <- gsub("-", "0", nc_charlotte)
+colnames(nc_charlotte) <- nc_charlotte[1,]
+nc_charlotte <- as.data.frame(nc_charlotte[-1,])
+ind6 <- sapply(nc_charlotte, is.factor)
+nc_charlotte[ind6] <- lapply(nc_charlotte[ind6], function(x) as.numeric(as.character(x)))
+
+temp3 <- nc_charlotte %>%
+  select("Year", "T","TM", "Tm","PP","V")
+
+# right joining 3 data frames
+join_nc <- join_all(list(temp1,temp2,temp3), by = c("Year", "T","TM", "Tm","PP","V"), type = "right")
+
+# change the columns in the data frame from factor to numeric 
+indx <- sapply(join_nc, is.factor)
+join_nc[indx] <- lapply(join_nc[indx], function(x) as.numeric(as.character(x)))
+
+#Arrange by year 
+join_nc %>%
+  arrange(Year)
+```
+
+Similar to Texas, there are more than one climate stations located in North carolina. I scraped them off, convert each columns into numeric, select the interested variables we want to include, and merge these three data frames into one using "join_all" method. Now we have the new data frame, which I arrange by year to see the general results. 
+
+Using ggplot to plot NC min and max temperature over the years
+```{r echo = FALSE}
+join_nc %>%
+  ggplot(aes(TM,Tm, color = Year)) + geom_point() +
+  xlab("Maximum Temperature") + ylab("Minimum Temperature") + theme(legend.position = "left") + ggtitle(" Min and Max temperature of NC over years")
+```
+
+
+By looking at the table, we are interested in looking at the median precipitation of 1941 to 2018 
+```{r echo = FALSE}
+# then create a new variable "average_PP" to indicate the median and the mean of the precipitation of 1941 to 2018 
+join_nc <- join_nc %>%
+  group_by(Year) %>%
+  mutate(median_PP = median(PP)) %>%
+  mutate(average_PP = mean(PP)) %>%
+  mutate(range_T = (TM - Tm))
+
+```
+
+
+Using ggplot to plot the min and max temperature of NC over the year 
+```{r echo = FALSE}
+join_nc %>%
+  ggplot(aes(range_T, Year, color = PP)) + geom_point() +
+  xlab("Range of the Temperature") + ylab("Year") + theme(legend.position = "left") + ggtitle("NC temperature range over years w.r.t. Precipitations")
+
+```
+
+
+From the ggplot graph, we can see that in most of the years from 1941 to 2018, the range of the average annual temperature were between 10 - 15. There are some outliers, earlier in years like 1941, 1943, 2002, 2005 where the range_T = 0, that is because there are missing values recorded in the corresponding maximum and minimum average annual temperatures. On the other hand, if we look at the precipitation aspect of the graph in North Carolina, the precipitation between 1970 and 1980 were pretty low. Even though the dataset that we got here do not actually have a valid record of why this is the case, but I did some research trying to find out the reason, it turns out that North Carolina experienced a major winter storm with heavy snow across the entire state and near blizzard conditions in the eastern part of the state in 1980 (National Weather Service, 2016), which might be a possible reason why the "precipitation" is low. 
+
+
+[citation:
+US Department of Commerce, and NOAA. “Snowstorm of the Century March 1980.” National Weather Service, NOAA's National Weather Service, 14 Jan. 2016, www.weather.gov/mhx/Mar011980EventReview.]
+
+
+Tentative web-scraping technique. Trying to write a function that can scrap tables off from multiple url links, since the url only changed when changing the climate stations (each climate stations have its own code) however, did not work :(
+```{r echo = FALSE}
+#url_base <- "https://en.tutiempo.net/climate/ws-%d.html"
+
+#map_df(1:1000000, function(i){
+  #page <- read_html(sprintf(url_base, i))
+  #data.frame(climate_station = html_text(html_nodes(page, "a")),
+             #year = html_text(html_nodes(page, "th")),
+             #average_annual_temp = html_text(html_nodes(page, ".tooltip")),
+             #Precipitation_total = html_text(html_nodes(page, ".tooltip")),
+             #temp_max = html_text(html_nodes(page, ".tooltip")),
+             #temp_min = html_text(html_nodes(page, "th"))
+
+          #   )
+#}) -> usaClimate
+```
+
+
+#### Second. Importing second dataset we want to use and compare in this project 
+```{r echo = FALSE}
+# The format of the second dataset is directly in csv file, we can access the file in R by direcly download it from the url and save it on your own local computer as the file name "rdu_weath_hist.csv"
+
+name = c("rdu_weath_hist")
+url = c("https://data.townofcary.org/api/v2/catalog/datasets/rdu-weather-history/exports/csv")
+download.file(url, destfile = paste0(name, ".csv") , method = "auto")
+
+#Then you can import the dataset into R fron whichever directory it saves to.
+rdu_weather <- read.csv("rdu_weath_hist.csv", header = TRUE, sep = ";")
+
+```
+
+Using ggplot to plot the min and max temperature 
+```{r echo = FALSE}
+rdu_weather %>%
+  ggplot(aes(temperaturemax,temperaturemin, color = precipitation)) + geom_point() +
+  xlab("Maximum Temperature") + ylab("Minimum Temperature") + theme(legend.position = "left") 
+```
+
+To compare the range of the temperature from this dataset with the previous join_nc dataset, we use similar method to add columns into the original dataset. 
+```{r echo = FALSE}
+rdu_weather <- rdu_weather %>%
+  group_by(date) %>%
+  mutate(range_T = (temperaturemax - temperaturemin)) %>%
+  filter(precipitation >0) %>%
+  mutate(median_PP = median(precipitation)) %>%
+  mutate(average_PP = mean(precipitation)) %>%
+  select("date","temperaturemax", "temperaturemin", "precipitation", "range_T", "median_PP","average_PP") %>%
+  ungroup() 
+
+#comparing
+join_nc[join_nc$Year > 2009 & join_nc$Year < 2017, ]
+
+```
+
+Comparing with this result of the previous calculated temperature range, median and average value of precipitations from dataset1, with the same range of year from 2009 to 2017. We can see that these two datasets have different ways of recording time. The second one has a more precised way specifically into month and date, rather than the first one which only have the year. Also, for the second dataset, there are several data points within a year with different months and dates. This might be a reason why the value of the median and average precipitation varies that much. However, this dataset gave a better point of view for the weather in North Carolina. 
+
+
+
+
+
+RUIXUAN SONG 
+4/29/2018
+
+
+
